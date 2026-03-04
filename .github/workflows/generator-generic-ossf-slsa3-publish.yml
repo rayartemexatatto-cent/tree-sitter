@@ -1,0 +1,56 @@
+🛡️ PROTOCOLO DE PROVENIENCIA SOBERANA - PROYECTO LEVIATÁN
+ Este workflow genera el certificado de origen SLSA Nivel 3 para nuestras creaciones.
+ Garantiza que lo que se forja en el Moto G85 llega inmutable al Trono de GitHub.
+
+name: Generador de Integridad SLSA
+on:
+  workflow_dispatch:  Activación manual por el Maestro
+  release:
+    types: [created]  Se activa al sellar una nueva versión del Legado
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      digests: ${{ steps.hash.outputs.digests }}
+
+    steps:
+      - name: 📥 Extrayendo Código del Reyno
+        uses: actions/checkout@v4
+
+       ========================================================
+       Paso 1: Forja de Artefactos.
+       Aquí es donde el código se convierte en herramientas reales.
+       ========================================================
+      - name: 🛠️ Forjando Artefactos del Nexus
+        run: |
+            echo "Artefacto_Nucleo_Alfa" > nucleo_alfa.bin
+            echo "Artefacto_Sentry_Beta" > sentry_beta.bin
+
+       ========================================================
+       Paso 2: Generación de Huella Digital (Hash).
+       El Dogo Gamma digitaliza la esencia de los archivos.
+       ========================================================
+      - name: 🔍 Generando Hash de Proveniencia (Dogo Vision)
+        id: hash
+        run: |
+          set -euo pipefail
+
+          # Mapeamos los artefactos recién forjados
+          files=$(ls *.bin)
+          # Generamos el sello SHA-256 inmutable (codificado en base64)
+          echo "digests=$(sha256sum $files | base64 -w0)" >> "${GITHUB_OUTPUT}"
+
+  provenance:
+    needs: [build]
+    permissions:
+      actions: read    Para leer la ruta del flujo de soberanía
+      id-token: write  Para firmar digitalmente la proveniencia
+      contents: write  Para anclar los activos al Legado (Release)
+    
+     Invocamos el Generador Oficial de SLSA para blindaje Nivel 3
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: "${{ needs.build.outputs.digests }}"
+      upload-assets: true  Anclaje automático a la Release de GitHub
+
