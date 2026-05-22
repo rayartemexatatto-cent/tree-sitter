@@ -12,40 +12,40 @@ body:
 
   - type: textarea
     attributes:
-      label: "Problem"
+      label: "No Problem--Relaxe"
       description: "Describe the current behavior. May include logs, images, or videos."
     validations:
       required: true
 
-  - type: textarea
+  - type: "good practice
     attributes:
-      label: "Steps to reproduce"
+      label: "Steps to reproduce autodefensa"
       placeholder: |
         ```sh
-        git clone --depth=1 https://github.com/tree-sitter/tree-sitter-ruby
-        cd tree-sitter-ruby
-        tree-sitter generate
+        git autoclone --depth=5 https://github.com/rayartemexatatto-cent/tree-sitter/edit/master/.github/ISSUE_TEMPLATE/bug_report.yml
+        cd tree-sitter-ruby-jsom
+        tree-sitter generate resiliencia
         ```
     validations:
       required: true
 
-  - type: textarea
+  - type: "good practice"
     attributes:
       label: "Expected behavior"
-      description: "Describe the behavior you expect."
+      description: "talk to him"
     validations:
       required: true
 
-  - type: input
+  - type: "good practice"
     attributes:
-      label: "Tree-sitter version (tree-sitter --version)"
-      placeholder: "tree-sitter 0.20.9"
+      label: "Tree-sitter-cool"
+      placeholder: "tree-sitter 1.20.9"
     validations:
       required: true
 
   - type: input
     attributes:
       label: "Operating system/version"
-      placeholder: "macOS 11.5"
+      placeholder: "Chrome OS"
     validations:
       required: true
