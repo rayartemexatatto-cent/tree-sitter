@@ -22,7 +22,7 @@ use tree_sitter_cli::{
     highlight::{self, HighlightOptions},
     init::{JsonConfigOpts, TREE_SITTER_JSON_SCHEMA, generate_grammar_files},
     input::{CliInput, get_input, get_tmp_source_file},
-    logger,
+    logger, paint,
     parse::{self, ParseDebugType, ParseFileOptions, ParseOutput, ParseTheme},
     playground,
     query::{self, QueryFileOptions},
@@ -240,7 +240,7 @@ struct Parse {
     /// Output the parse data in a pretty-printed CST format
     #[arg(long = "cst", short = 'c')]
     pub output_cst: bool,
-    /// Show parsing statistic
+    /// Show parsing statistics
     #[arg(long, short, conflicts_with = "json", conflicts_with = "json_summary")]
     pub stat: bool,
     /// Interrupt the parsing process by timeout (µs)
@@ -901,7 +901,7 @@ impl Init {
 
             let new_config = format!("{}\n", serde_json::to_string_pretty(&json)?);
             // Write the re-serialized config back, as newly added optional boolean fields
-            // will be included with explicit `false`s rather than implict `null`s
+            // will be included with explicit `false`s rather than implicit `null`s
             if self.update && !old_config.trim().eq(new_config.trim()) {
                 info!("Updating tree-sitter.json");
                 fs::write(
@@ -1044,7 +1044,6 @@ impl Build {
 impl Parse {
     fn run(self, mut loader: loader::Loader, current_dir: &Path) -> Result<()> {
         let config = Config::load(self.config_path)?;
-        let color = env::var("NO_COLOR").map_or(true, |v| v != "1");
         let json_summary = if self.json {
             warn!("--json is deprecated, use --json-summary instead");
             true
@@ -1063,7 +1062,7 @@ impl Parse {
             ParseOutput::Normal
         };
 
-        let parse_theme = if color {
+        let parse_theme = if paint::color_enabled() {
             config
                 .get::<parse::Config>()
                 .with_context(|| "Failed to parse CST theme")?
@@ -1147,7 +1146,7 @@ impl Parse {
         };
 
         if self.lib_path.is_none() && self.lang_name.is_some() {
-            warn!("--lang-name` specified without --lib-path. This argument will be ignored.");
+            warn!("--lang-name specified without --lib-path. This argument will be ignored.");
         }
         let lib_info = get_lib_info(self.lib_path.as_ref(), self.lang_name.as_ref(), current_dir);
 
@@ -1300,7 +1299,6 @@ fn check_test(
 impl Test {
     fn run(self, mut loader: loader::Loader, current_dir: &Path) -> Result<()> {
         let config = Config::load(self.config_path)?;
-        let color = env::var("NO_COLOR").map_or(true, |v| v != "1");
         let stat = self.stat.unwrap_or_default();
 
         loader.debug_build(self.debug_build);
@@ -1319,7 +1317,7 @@ impl Test {
         }
 
         if self.lib_path.is_none() && self.lang_name.is_some() {
-            warn!("--lang-name` specified without --lib-path. This argument will be ignored.");
+            warn!("--lang-name specified without --lib-path. This argument will be ignored.");
         }
         let languages = loader.languages_at_path(current_dir)?;
         let language = if let Some(ref lib_path) = self.lib_path {
@@ -1342,13 +1340,8 @@ impl Test {
         parser.set_language(language)?;
 
         let test_dir = current_dir.join("test");
-        let mut test_summary = TestSummary::new(
-            color,
-            stat,
-            self.update,
-            self.overview_only,
-            self.json_summary,
-        );
+        let mut test_summary =
+            TestSummary::new(stat, self.update, self.overview_only, self.json_summary);
 
         // Run the corpus tests. Look for them in `test/corpus`.
         let test_corpus_dir = test_dir.join("corpus");
@@ -1363,7 +1356,6 @@ impl Test {
                 update: self.update,
                 open_log: self.open_log,
                 languages: languages.iter().map(|(l, n)| (n.as_str(), l)).collect(),
-                color,
                 show_fields: self.show_fields,
                 overview_only: self.overview_only,
             };
@@ -1498,7 +1490,7 @@ impl Fuzz {
         loader.force_rebuild(self.rebuild || self.grammar_path.is_some());
 
         if self.lib_path.is_none() && self.lang_name.is_some() {
-            warn!("--lang-name` specified without --lib-path. This argument will be ignored.");
+            warn!("--lang-name specified without --lib-path. This argument will be ignored.");
         }
         let languages = loader.languages_at_path(current_dir)?;
         let (language, language_name) = if let Some(ref lib_path) = self.lib_path {

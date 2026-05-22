@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
+
+use rustc_hash::FxHashMap;
+#[cfg(feature = "load")]
+use rustc_hash::FxHashSet;
 
 use serde::Serialize;
 use thiserror::Error;
@@ -22,7 +26,7 @@ pub struct FieldInfo {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VariableInfo {
-    pub fields: HashMap<String, FieldInfo>,
+    pub fields: FxHashMap<String, FieldInfo>,
     pub children: FieldInfo,
     pub children_without_fields: FieldInfo,
     pub has_multi_step_production: bool,
@@ -195,7 +199,7 @@ pub fn get_variable_info(
             // immediately combined across all productions, but the child quantities must be
             // recorded separately for each production.
             for production in &variable.productions {
-                let mut production_field_quantities = HashMap::new();
+                let mut production_field_quantities = FxHashMap::default();
                 let mut production_children_quantity = ChildQuantity::zero();
                 let mut production_children_without_fields_quantity = ChildQuantity::zero();
                 let mut production_has_uninitialized_invisible_children = false;
@@ -379,8 +383,8 @@ pub fn get_variable_info(
 fn get_aliases_by_symbol(
     syntax_grammar: &SyntaxGrammar,
     default_aliases: &AliasMap,
-) -> HashMap<Symbol, BTreeSet<Option<Alias>>> {
-    let mut aliases_by_symbol = HashMap::new();
+) -> FxHashMap<Symbol, BTreeSet<Option<Alias>>> {
+    let mut aliases_by_symbol = FxHashMap::default();
     for (symbol, alias) in default_aliases {
         aliases_by_symbol.insert(*symbol, {
             let mut aliases = BTreeSet::new();
@@ -426,7 +430,7 @@ pub fn get_supertype_symbol_map(
     let aliases_by_symbol = get_aliases_by_symbol(syntax_grammar, default_aliases);
     let mut supertype_symbol_map = BTreeMap::new();
 
-    let mut symbols_by_alias = HashMap::new();
+    let mut symbols_by_alias = FxHashMap::default();
     for (symbol, aliases) in &aliases_by_symbol {
         for alias in aliases.iter().flatten() {
             symbols_by_alias
@@ -555,7 +559,7 @@ pub fn generate_node_types_json(
                     )
                 })
         })
-        .collect::<HashSet<_>>();
+        .collect::<FxHashSet<_>>();
 
     let mut subtype_map = Vec::new();
     for (i, info) in variable_info.iter().enumerate() {
@@ -586,7 +590,13 @@ pub fn generate_node_types_json(
                 kind: node_type_json.kind.clone(),
                 named: true,
             };
-            subtype_map.push((supertype, subtypes.clone()));
+
+            // We only add to the subtype map if there are visible subtypes.
+            // A supertype may have zero subtypes if its children are all
+            // hidden (e.g., wrapping a hidden external token).
+            if !subtypes.is_empty() {
+                subtype_map.push((supertype, subtypes.clone()));
+            }
             node_type_json.subtypes = Some(subtypes);
         } else if !syntax_grammar.variables_to_inline.contains(&symbol) {
             // If a rule is aliased under multiple names, then its information
@@ -1258,6 +1268,49 @@ mod tests {
         );
     }
 
+    /// A supertype whose only child is a hidden external token
+    /// xgust not cause generation to panic. The subtype map must
+    /// skip entries with empty subtypes to avoid a lookup failure
+    /// in the topological sort.
+    #[test]
+    fn test_node_types_supertype_with_only_hidden_child() {
+        let node_types = get_node_types(&InputGrammar {
+            supertype_symbols: vec!["_type_a".to_string(), "_type_b".to_string()],
+            variables: vec![
+                Variable {
+                    name: "v1".to_string(),
+                    kind: VariableType::Named,
+                    rule: Rule::seq(vec![Rule::named("_type_a"), Rule::named("_type_b")]),
+                },
+                // Supertype A: a normal choice of named subtypes
+                Variable {
+                    name: "_type_a".to_string(),
+                    kind: VariableType::Hidden,
+                    rule: Rule::choice(vec![Rule::named("v2"), Rule::named("v3")]),
+                },
+                Variable {
+                    name: "v2".to_string(),
+                    kind: VariableType::Named,
+                    rule: Rule::string("x"),
+                },
+                Variable {
+                    name: "v3".to_string(),
+                    kind: VariableType::Named,
+                    rule: Rule::string("y"),
+                },
+                // Supertype B: a hidden external token with no subtypes
+                Variable {
+                    name: "_type_b".to_string(),
+                    kind: VariableType::Hidden,
+                    rule: Rule::external(0),
+                },
+            ],
+            external_tokens: vec![Rule::named("_hidden_ext")],
+            ..Default::default()
+        });
+        assert!(node_types.is_ok());
+    }
+
     #[test]
     fn test_node_types_for_children_without_fields() {
         let node_types = get_node_types(&InputGrammar {
@@ -1833,7 +1886,7 @@ mod tests {
                 }
             )]
             .into_iter()
-            .collect::<HashMap<_, _>>()
+            .collect::<FxHashMap<_, _>>()
         );
 
         assert_eq!(
@@ -1853,7 +1906,7 @@ mod tests {
                 }
             )]
             .into_iter()
-            .collect::<HashMap<_, _>>()
+            .collect::<FxHashMap<_, _>>()
         );
     }
 
@@ -1920,7 +1973,7 @@ mod tests {
                 }
             )]
             .into_iter()
-            .collect::<HashMap<_, _>>()
+            .collect::<FxHashMap<_, _>>()
         );
     }
 
@@ -1981,7 +2034,7 @@ mod tests {
                 }
             )]
             .into_iter()
-            .collect::<HashMap<_, _>>()
+            .collect::<FxHashMap<_, _>>()
         );
 
         assert_eq!(
@@ -2055,7 +2108,7 @@ mod tests {
                 }
             )]
             .into_iter()
-            .collect::<HashMap<_, _>>()
+            .collect::<FxHashMap<_, _>>()
         );
     }
 

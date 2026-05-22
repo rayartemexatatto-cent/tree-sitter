@@ -1108,8 +1108,8 @@ fn test_query_matches_with_immediate_siblings() {
         //    siblings before that child node.
         // 2. After the last child node in a pattern, it means that there cannot be any named
         //    sibling after that child node.
-        // 2. Between two child nodes in a pattern, it specifies that there cannot be any named
-        //    siblings between those two child snodes.
+        // 3. Between two child nodes in a pattern, it specifies that there cannot be any named
+        //    siblings between those two child nodes.
         let query = Query::new(
             &language,
             "
@@ -1941,7 +1941,7 @@ fn test_query_matches_with_too_many_permutations_to_track() {
         let matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
 
         // For this pathological query, some match permutations will be dropped.
-        // Just check that a subset of the results are returned, and crash or
+        // Just check that a subset of the results are returned, and no crash or
         // leak occurs.
         assert_eq!(
             collect_matches(matches, &query, source.as_str())[0],
@@ -3107,6 +3107,39 @@ fn test_query_alternation_with_inner_quantifier() {
        (comment)
        (preproc_include)+
     ] @capture";
+    let query = Query::new(&language, query).unwrap();
+    assert_query_matches(&language, &query, source_code, matches);
+}
+
+#[test]
+fn test_query_alternation_with_outer_quantifier() {
+    let language = get_language("c");
+    let source_code = "#include <foo>
+#include <bar>
+#include <baz>
+
+// comment";
+    let matches = &[(
+        0,
+        vec![
+            ("capture", "#include <foo>\n"),
+            ("capture", "#include <bar>\n"),
+            ("capture", "#include <baz>\n"),
+            ("capture", "// comment"),
+        ],
+    )];
+
+    let query = "[
+        (preproc_include)
+        (comment)
+    ]+ @capture";
+    let query = Query::new(&language, query).unwrap();
+    assert_query_matches(&language, &query, source_code, matches);
+
+    let query = "([
+        (preproc_include)
+        (comment)
+    ] (_)?)+ @capture";
     let query = Query::new(&language, query).unwrap();
     assert_query_matches(&language, &query, source_code, matches);
 }

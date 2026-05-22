@@ -454,7 +454,7 @@ fn test_node_child_by_field_name_with_extra_hidden_children() {
     // In the Python grammar, some fields are applied to `suite` nodes,
     // which consist of an invisible `indent` token followed by a block.
     // Check that when searching for a child with a field name, we don't
-    //
+    // return a hidden child node.
     let tree = parser.parse("while a:\n  pass", None).unwrap();
     let while_node = tree.root_node().child(0).unwrap();
     assert_eq!(while_node.kind(), "while_statement");
@@ -950,6 +950,13 @@ fn test_node_sexp() {
 
 #[test]
 fn test_node_field_names() {
+    // - "x":
+    //      This isn't used in the test, but prevents `_hidden_rule1` from being eliminated as a
+    //      unit reduction.
+    // - "_hidden_rule1":
+    //      Fields pointing to hidden nodes with a single child resolve to the child.
+    // - "_hidden_rule2":
+    //      Fields within hidden nodes can be referenced through the parent node.
     let (parser_name, parser_code) = generate_parser(
         r#"
         {
@@ -972,8 +979,6 @@ fn test_node_field_names() {
                                 {"type": "STRING", "value": "child-1"},
                                 {"type": "BLANK"},
 
-                                // This isn't used in the test, but prevents `_hidden_rule1`
-                                // from being eliminated as a unit reduction.
                                 {
                                     "type": "ALIAS",
                                     "value": "x",
@@ -994,7 +999,6 @@ fn test_node_field_names() {
                     ]
                 },
 
-                // Fields pointing to hidden nodes with a single child resolve to the child.
                 "_hidden_rule1": {
                     "type": "CHOICE",
                     "members": [
@@ -1003,7 +1007,6 @@ fn test_node_field_names() {
                     ]
                 },
 
-                // Fields within hidden nodes can be referenced through the parent node.
                 "_hidden_rule2": {
                     "type": "SEQ",
                     "members": [

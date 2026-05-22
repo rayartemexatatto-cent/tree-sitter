@@ -5,8 +5,6 @@
 use std::fmt::Write as _;
 #[cfg(any(feature = "tree-sitter-highlight", feature = "tree-sitter-tags"))]
 use std::ops::Range;
-#[cfg(feature = "tree-sitter-highlight")]
-use std::sync::Mutex;
 use std::{
     collections::HashMap,
     env, fs,
@@ -16,8 +14,8 @@ use std::{
     mem,
     path::{Path, PathBuf},
     process::Command,
-    sync::LazyLock,
-    time::{SystemTime, SystemTimeError},
+    sync::Mutex,
+    time::{Duration, Instant, SystemTime},
 };
 
 use etcetera::BaseStrategy as _;
@@ -40,10 +38,7 @@ use tree_sitter_highlight::HighlightConfiguration;
 #[cfg(feature = "tree-sitter-tags")]
 use tree_sitter_tags::{Error as TagsError, TagsConfiguration};
 
-static GRAMMAR_NAME_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#""name":\s*"(.*?)""#).unwrap());
-
-static WASM_TOOL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static WASM_TOOL_LOCK: Mutex<()> = Mutex::new(());
 
 const WASI_SDK_VERSION: &str = include_str!("../wasi-sdk-version").trim_ascii();
 const BINARYEN_VERSION: &str = include_str!("../binaryen-version").trim_ascii();
@@ -89,6 +84,10 @@ pub enum LoaderError {
     Compiler(CompilerError),
     #[error("Parser compilation failed.\nStdout: {0}\nStderr: {1}")]
     Compilation(String, String),
+    #[error(
+        "Lock file '{0}' appears stale\nIf there isn't another concurrent tree-sitter instance, remove it"
+    )]
+    LockFileTimeout(PathBuf),
     #[error("Failed to execute curl for {0} -- {1}")]
     Curl(String, std::io::Error),
     #[error("Failed to load language in current directory:\n{0}")]
@@ -123,8 +122,6 @@ pub enum LoaderError {
     Tags(#[from] TagsError),
     #[error("Failed to execute tar for {0} -- {1}")]
     Tar(String, std::io::Error),
-    #[error(transparent)]
-    Time(#[from] SystemTimeError),
     #[error("Unknown scope '{0}'")]
     UnknownScope(String),
     #[error("Failed to download {tool} from {url}")]
@@ -716,6 +713,74 @@ impl<'a> CompileConfig<'a> {
 
 unsafe impl Sync for Loader {}
 
+/// Generate a temporary file path for atomic writes. The temp file is a hidden
+/// dotfile alongside the target, tagged with the current process and thread id
+/// for debuggability (e.g. `.javascript.so.12345.ThreadId(3)`).
+fn temp_path(path: &Path) -> PathBuf {
+    let filename = path
+        .file_name()
+        .expect("output_path must have a filename")
+        .to_string_lossy();
+    path.with_file_name(format!(
+        ".{filename}.{}.{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ))
+}
+
+/// RAII lock file guard. The lock file is created atomically via
+/// [`create_new`](`fs::OpenOptions::create_new`) and removed on drop.
+/// and removed on drop.
+struct LockFile {
+    path: PathBuf,
+}
+
+impl LockFile {
+    /// Attempt to atomically create the lock file.
+    ///
+    /// Returns `Ok(Some)` if we won the race, `Ok(None)` if we lost,
+    /// or the underlying IO error otherwise.
+    fn create(path: &Path) -> LoaderResult<Option<Self>> {
+        match fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(path)
+        {
+            Ok(_) => Ok(Some(Self {
+                path: path.to_path_buf(),
+            })),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+            Err(e) => Err(LoaderError::IO(IoError::new(e, Some(path)))),
+        }
+    }
+
+    /// Wait for an existing lock file to be removed by whoever created it.
+    /// If the lock file persists beyond `timeout`, return [`LoaderError::LockFileTimeout`]
+    fn wait_for_removal(path: &Path, timeout: Duration) -> LoaderResult<()> {
+        let mut sleep_ms = 100;
+        let deadline = Instant::now() + timeout;
+        while path.exists() {
+            if Instant::now() > deadline {
+                return Err(LoaderError::LockFileTimeout(path.to_path_buf()));
+            }
+            std::thread::sleep(Duration::from_millis(sleep_ms));
+            sleep_ms = (sleep_ms * 2).min(1000);
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for LockFile {
+    fn drop(&mut self) {
+        match fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => warn!("Failed to remove lock file '{}': {e}.", self.path.display()),
+        }
+    }
+}
+
 impl Loader {
     pub fn new() -> LoaderResult<Self> {
         let parser_lib_path = if let Ok(path) = env::var("TREE_SITTER_LIBDIR") {
@@ -893,8 +958,11 @@ impl Loader {
                     path = PathBuf::from(path.file_stem()?.to_os_string());
                 }
                 extensions.reverse();
-                self.language_configuration_ids_by_file_type
-                    .get(&extensions.join("."))
+                // Try longest extension suffixs first (e.g. "foo.bar.baz"->"bar.baz"->"baz"),
+                // stopping at the first match.
+                (0..extensions.len())
+                    .map(|i| extensions[i..].join("."))
+                    .find_map(|key| self.language_configuration_ids_by_file_type.get(&key))
             });
 
         if let Some(configuration_ids) = configuration_ids
@@ -1068,25 +1136,6 @@ impl Loader {
             recompile = needs_recompile(&output_path, &paths_to_check)?;
         }
 
-        #[cfg(feature = "wasm")]
-        if let Some(wasm_store) = self.wasm_store.lock().unwrap().as_mut() {
-            if recompile {
-                self.compile_parser_to_wasm(
-                    &config.name,
-                    config.src_path,
-                    config
-                        .scanner_path
-                        .as_ref()
-                        .and_then(|p| p.strip_prefix(config.src_path).ok()),
-                    &output_path,
-                )?;
-            }
-
-            let wasm_bytes = fs::read(&output_path)
-                .map_err(|e| LoaderError::IO(IoError::new(e, Some(output_path.as_path()))))?;
-            return Ok(wasm_store.load_language(&config.name, &wasm_bytes)?);
-        }
-
         // Create a unique lock path based on the output path hash to prevent
         // interference when multiple processes build the same grammar (by name)
         // to different output locations
@@ -1096,85 +1145,72 @@ impl Loader {
             format!("{:x}", hasher.finish())
         };
 
-        let lock_path = if env::var("CROSS_RUNNER").is_ok() {
-            tempfile::tempdir()
-                .expect("create a temp dir")
-                .path()
-                .to_path_buf()
-        } else {
-            etcetera::choose_base_strategy()?.cache_dir()
-        }
-        .join("tree-sitter")
-        .join("lock")
-        .join(format!("{}-{lock_hash}.lock", config.name));
+        let mut lock_path = etcetera::choose_base_strategy()?.cache_dir();
+        lock_path.push(format!(
+            "tree-sitter{slash}lock{slash}{name}-{lock_hash}.lock",
+            slash = std::path::MAIN_SEPARATOR,
+            name = config.name
+        ));
 
-        if let Ok(lock_file) = fs::OpenOptions::new().write(true).open(&lock_path) {
-            recompile = false;
-            if lock_file.try_lock().is_err() {
-                // if we can't acquire the lock, another process is compiling the parser, wait for
-                // it and don't recompile
-                lock_file
-                    .lock()
-                    .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path.as_path()))))?;
-                recompile = false;
-            } else {
-                // if we can acquire the lock, check if the lock file is older than 30 seconds, a
-                // run that was interrupted and left the lock file behind should not block
-                // subsequent runs
-                let time = lock_file
-                    .metadata()
-                    .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path.as_path()))))?
-                    .modified()
-                    .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path.as_path()))))?
-                    .elapsed()?
-                    .as_secs();
-                if time > 30 {
-                    fs::remove_file(&lock_path)
-                        .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path.as_path()))))?;
-                    recompile = true;
-                }
-            }
-        }
-
+        // Synchronize compilation across threads/processes using an atomic lock
+        // file. Exactly one caller wins the race to compile. Losers wait for the
+        // lock file to be removed, then skip compilation and proceed to loading.
+        //
+        // Loading only (`recompile == false`) doesn't need a lock because
+        // `compile_parser_to_dylib` writes to a temp file and atomically renames
+        // into place, so loaders always see a complete shared library (either the
+        // new or previous copy).
+        //
+        // The `LockFile` ensures cleanup on drop, and stale locks from killed
+        // processes are detected via a timeout in `wait_for_removal`.
         if recompile {
             let parent_path = lock_path.parent().unwrap();
             fs::create_dir_all(parent_path)
                 .map_err(|e| LoaderError::IO(IoError::new(e, Some(parent_path))))?;
-            let lock_file = fs::OpenOptions::new()
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .open(&lock_path)
-                .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path.as_path()))))?;
-            lock_file
-                .lock()
-                .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path.as_path()))))?;
 
-            self.compile_parser_to_dylib(&config, &lock_file, &lock_path)?;
-
-            if config.scanner_path.is_some() {
-                Self::check_external_scanner(&output_path);
+            match LockFile::create(&lock_path)? {
+                Some(_lock) => {
+                    // We won the race, so compile with the lock.
+                    let compile_wasm;
+                    #[cfg(feature = "wasm")]
+                    {
+                        compile_wasm = self.wasm_store.lock().unwrap().is_some();
+                    }
+                    #[cfg(not(feature = "wasm"))]
+                    {
+                        compile_wasm = false;
+                    };
+                    #[cfg(feature = "wasm")]
+                    if compile_wasm {
+                        self.compile_parser_to_wasm(
+                            &config.name,
+                            config.src_path,
+                            config
+                                .scanner_path
+                                .as_ref()
+                                .and_then(|p| p.strip_prefix(config.src_path).ok()),
+                            &output_path,
+                        )?;
+                    }
+                    if !compile_wasm {
+                        self.compile_parser_to_dylib(&config)?;
+                        if config.scanner_path.is_some() {
+                            Self::check_external_scanner(&output_path);
+                        }
+                    }
+                    // _lock dropped here, removing the lock file.
+                }
+                // Another thread/process is compiling (or a previous run
+                // crashed and left a stale lock). Wait for it to finish.
+                None => LockFile::wait_for_removal(&lock_path, Duration::from_secs(30))?,
             }
         }
 
-        // Ensure the dynamic library exists before trying to load it. This can
-        // happen in race conditions where we couldn't acquire the lock because
-        // another process was compiling but it still hasn't finished by the
-        // time we reach this point, so the output file still doesn't exist.
-        //
-        // Instead of allowing the `load_language` call below to fail, return a
-        // clearer error to the user here.
-        if !output_path.exists() {
-            let msg = format!(
-                "Dynamic library `{}` not found after build attempt. \
-                Are you running multiple processes building to the same output location?",
-                output_path.display()
-            );
-
-            Err(LoaderError::IO(IoError::new(
-                std::io::Error::new(std::io::ErrorKind::NotFound, msg),
-                Some(output_path.as_path()),
-            )))?;
+        #[cfg(feature = "wasm")]
+        if let Some(wasm_store) = self.wasm_store.lock().unwrap().as_mut() {
+            let wasm_bytes = fs::read(&output_path)
+                .map_err(|e| LoaderError::IO(IoError::new(e, Some(output_path.as_path()))))?;
+            return Ok(wasm_store.load_language(&config.name, &wasm_bytes)?);
         }
 
         Self::load_language(&output_path, &language_fn_name)
@@ -1203,12 +1239,7 @@ impl Loader {
         Ok(language)
     }
 
-    fn compile_parser_to_dylib(
-        &self,
-        config: &CompileConfig,
-        lock_file: &fs::File,
-        lock_path: &Path,
-    ) -> LoaderResult<()> {
+    fn compile_parser_to_dylib(&self, config: &CompileConfig) -> LoaderResult<()> {
         let mut cc_config = cc::Build::new();
         cc_config
             .cargo_metadata(false)
@@ -1238,16 +1269,16 @@ impl Loader {
         }
 
         let compiler = cc_config.get_compiler();
-        let mut command = Command::new(compiler.path());
-        command.args(compiler.args());
-        for (key, value) in compiler.env() {
-            command.env(key, value);
-        }
+        let mut command = compiler.to_command();
 
         let output_path = config.output_path.as_ref().unwrap();
 
+        // Compile to a temporary path, then atomically rename into place.
+        // This ensures loaders never see a half-written .so file.
+        let temp_output = temp_path(output_path);
+
         let temp_dir = if compiler.is_like_msvc() {
-            let out = format!("-out:{}", output_path.to_str().unwrap());
+            let out = format!("-out:{}", temp_output.to_str().unwrap());
             command.arg(if self.debug_build { "-LDd" } else { "-LD" });
             command.arg("-utf-8");
 
@@ -1280,7 +1311,7 @@ impl Loader {
                 command.arg("-lc");
             }
             command.args(cc_config.get_files());
-            command.arg("-o").arg(output_path);
+            command.arg("-o").arg(&temp_output);
 
             None
         };
@@ -1309,15 +1340,14 @@ impl Loader {
             let _ = fs::remove_dir_all(temp_dir);
         }
 
-        lock_file
-            .unlock()
-            .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path))))?;
-        fs::remove_file(lock_path)
-            .map_err(|e| LoaderError::IO(IoError::new(e, Some(lock_path))))?;
-
         if output.status.success() {
+            fs::rename(&temp_output, output_path).map_err(|e| {
+                let _ = fs::remove_file(&temp_output);
+                LoaderError::IO(IoError::new(e, Some(output_path)))
+            })?;
             Ok(())
         } else {
+            let _ = fs::remove_file(&temp_output);
             Err(LoaderError::Compilation(
                 String::from_utf8_lossy(&output.stdout).to_string(),
                 String::from_utf8_lossy(&output.stderr).to_string(),
@@ -1386,13 +1416,16 @@ impl Loader {
         let wasm_opt_exe = Self::ensure_binaryen_exists()?;
         drop(tool_lock);
 
-        let output_path = output_path.to_str().unwrap();
+        // Compile to a temporary path, then atomically rename into place.
+        // This ensures loaders never see a half-written .wasm file.
+        let temp_output = temp_path(output_path);
+        let temp_output_str = temp_output.to_str().unwrap();
 
         let mut compile_command = Command::new(&clang_exe);
         compile_command.current_dir(src_path).args([
             "--target=wasm32-unknown-wasi",
             "-o",
-            output_path,
+            temp_output_str,
             "-fPIC",
             "-shared",
             "--no-wasm-opt",
@@ -1429,6 +1462,7 @@ impl Loader {
         }
 
         if !compile_output.status.success() {
+            let _ = fs::remove_file(&temp_output);
             return Err(LoaderError::WasmCompilation(
                 String::from_utf8_lossy(&compile_output.stderr).to_string(),
             ));
@@ -1437,7 +1471,7 @@ impl Loader {
         let mut opt_command = Command::new(&wasm_opt_exe);
         opt_command
             .current_dir(src_path)
-            .args([output_path, "-Os", "-o", output_path]);
+            .args([temp_output_str, "-Os", "-o", temp_output_str]);
 
         if self.verbose {
             display_build_cmd(&opt_command);
@@ -1454,10 +1488,16 @@ impl Loader {
         }
 
         if !opt_output.status.success() {
+            let _ = fs::remove_file(&temp_output);
             return Err(LoaderError::WasmOptimization(
                 String::from_utf8_lossy(&opt_output.stderr).to_string(),
             ));
         }
+
+        fs::rename(&temp_output, output_path).map_err(|e| {
+            let _ = fs::remove_file(&temp_output);
+            LoaderError::IO(IoError::new(e, Some(output_path)))
+        })?;
 
         Ok(())
     }
@@ -1704,7 +1744,7 @@ impl Loader {
     ) -> Option<&'a HighlightConfiguration> {
         match self.language_configuration_for_injection_string(string) {
             Err(e) => {
-                error!("Failed to load language for injection string '{string}': {e}",);
+                error!("Failed to load language for injection string '{string}': {e}");
                 None
             }
             Ok(None) => None,
@@ -1748,7 +1788,7 @@ impl Loader {
                     let language_path =
                         parser_path.join(grammar.path.unwrap_or_else(|| PathBuf::from(".")));
 
-                    // Determine if a previous language configuration in this package.json file
+                    // Determine if a previous language configuration in this tree-sitter.json file
                     // already uses the same language.
                     let mut language_id = None;
                     for (id, (path, _, _)) in
@@ -1899,6 +1939,16 @@ impl Loader {
         pattern.and_then(|r| RegexBuilder::new(r).multi_line(true).build().ok())
     }
 
+    // Matches "name":\s*"(.*?)", returning the capture
+    fn grammar_name(json_text: &str) -> Option<String> {
+        let i = json_text.find("\"name\":")? + "\"name\":".len();
+        let rest = json_text[i..].trim_start();
+        let rest = rest.strip_prefix('\"')?;
+        let end = rest.find('\"')?;
+
+        Some(rest[..end].to_string())
+    }
+
     fn grammar_json_name(grammar_path: &Path) -> LoaderResult<String> {
         let file = fs::File::open(grammar_path)
             .map_err(|e| LoaderError::IO(IoError::new(e, Some(grammar_path))))?;
@@ -1910,12 +1960,10 @@ impl Loader {
             .map_err(|_| LoaderError::GrammarJSON(grammar_path.to_string_lossy().to_string()))?
             .join("\n");
 
-        let name = GRAMMAR_NAME_REGEX
-            .captures(&first_three_lines)
-            .and_then(|c| c.get(1))
+        let name = Self::grammar_name(&first_three_lines)
             .ok_or_else(|| LoaderError::GrammarJSON(grammar_path.to_string_lossy().to_string()))?;
 
-        Ok(name.as_str().to_string())
+        Ok(name)
     }
 
     pub fn select_language(

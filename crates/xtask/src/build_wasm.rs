@@ -294,9 +294,19 @@ fn build_wasm(cmd: &mut Command, edit_tsd: bool) -> Result<()> {
                     "undefined, localScope?: any | undefined, handle?: number | undefined): any"
                 ),
                 concat!(
-                    "loadWebAssemblyModule(binary: Uint8Array | WebAssembly.Module, flags: Record<string, boolean>,",
-                    " libName?: string, localScope?: Record<string, unknown>, handle?: number):",
-                    " Promise<Record<string, () => number>>"
+                    "type WasmExports = Record<string, () => number>;\n",
+                    "    type LoadWebAssemblyModuleFlags = { loadAsync: boolean } & Record<string, boolean>;\n",
+                    "    type LoadWebAssemblyModuleResult<F extends LoadWebAssemblyModuleFlags> =",
+                    " F extends { loadAsync: true } ? Promise<WasmExports> :",
+                    " F extends { loadAsync: false } ? WasmExports : Promise<WasmExports> | WasmExports;\n",
+                    "    /**\n",
+                    "     * @param {string=} libName\n",
+                    "     * @param {Object=} localScope\n",
+                    "     * @param {number=} handle\n",
+                    "     */\n",
+                    "    function loadWebAssemblyModule<F extends LoadWebAssemblyModuleFlags>(",
+                    "binary: Uint8Array | WebAssembly.Module, flags: F, libName?: string,",
+                    " localScope?: Record<string, unknown>, handle?: number): LoadWebAssemblyModuleResult<F>"
                 ),
             )
             .replace(
@@ -353,7 +363,7 @@ fn build_wasm(cmd: &mut Command, edit_tsd: bool) -> Result<()> {
 ///
 /// If `TREE_SITTER_WASI_SDK_PATH` is set, it will use that path to look for the clang executable.
 ///
-/// Note that this is just a minimially modified version of
+/// Note that this is just a minimally modified version of
 /// `tree_sitter_loader::ensure_wasi_sdk_exists`. In the loader, this functionality is implemented
 /// as a private method of `Loader`. Rather than add this to the public API, we just
 /// re-implement it. Any fixes and/or modifications made to the loader's copy should be reflected
@@ -402,7 +412,7 @@ pub fn ensure_wasi_sdk_exists() -> Result<PathBuf> {
 ///
 /// If `TREE_SITTER_BINARYEN_PATH` is set, it will use that path to look for the wasm-opt executable.
 ///
-/// Note that this is just a minimially modified version of
+/// Note that this is just a minimally modified version of
 /// `tree_sitter_loader::ensure_binaryen_exists`. In the loader, this functionality is implemented
 /// as a private method of `Loader`. Rather than add this to the public API, we just
 /// re-implement it. Any fixes and/or modifications made to the loader's copy should be reflected

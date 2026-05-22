@@ -106,6 +106,7 @@ pub struct TSLogger {
         ),
     >,
 }
+#[doc = " A summary of a change to a text document.\n\n The `start_byte` and `start_point` values must be less than or equal to the\n `old_end_byte` and `old_end_point` values, respectively. Passing an edit\n that violates these invariants may produce nonsensical results."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct TSInputEdit {
@@ -298,7 +299,7 @@ unsafe extern "C" {
     pub fn ts_tree_included_ranges(self_: *const TSTree, length: *mut u32) -> *mut TSRange;
 }
 unsafe extern "C" {
-    #[doc = " Edit the syntax tree to keep it in sync with source code that has been\n edited.\n\n You must describe the edit both in terms of byte offsets and in terms of\n (row, column) coordinates."]
+    #[doc = " Edit the syntax tree to keep it in sync with source code that has been\n edited.\n\n You must describe the edit both in terms of byte offsets and in terms of\n (row, column) coordinates.\n\n The edit's `start_byte` must be less than or equal to its `old_end_byte`,\n and its `start_point` must be less than or equal to its `old_end_point`."]
     pub fn ts_tree_edit(self_: *mut TSTree, edit: *const TSInputEdit);
 }
 unsafe extern "C" {
@@ -366,7 +367,7 @@ unsafe extern "C" {
     pub fn ts_node_is_missing(self_: TSNode) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Check if the node is *extra*. Extra nodes represent things like comments,\n which are not required the grammar, but can appear anywhere."]
+    #[doc = " Check if the node is *extra*. Extra nodes represent things like comments,\n which are not required by the grammar, but can appear anywhere."]
     pub fn ts_node_is_extra(self_: TSNode) -> bool;
 }
 unsafe extern "C" {
@@ -488,7 +489,7 @@ unsafe extern "C" {
     ) -> TSNode;
 }
 unsafe extern "C" {
-    #[doc = " Edit the node to keep it in-sync with source code that has been edited.\n\n This function is only rarely needed. When you edit a syntax tree with the\n [`ts_tree_edit`] function, all of the nodes that you retrieve from the tree\n afterward will already reflect the edit. You only need to use [`ts_node_edit`]\n when you have a [`TSNode`] instance that you want to keep and continue to use\n after an edit."]
+    #[doc = " Edit the node to keep it in-sync with source code that has been edited.\n\n This function is only rarely needed. When you edit a syntax tree with the\n [`ts_tree_edit`] function, all of the nodes that you retrieve from the tree\n afterward will already reflect the edit. You only need to use [`ts_node_edit`]\n when you have a [`TSNode`] instance that you want to keep and continue to use\n after an edit.\n\n The edit's `start_byte` must be less than or equal to its `old_end_byte`,\n and its `start_point` must be less than or equal to its `old_end_point`."]
     pub fn ts_node_edit(self_: *mut TSNode, edit: *const TSInputEdit);
 }
 unsafe extern "C" {
@@ -496,11 +497,11 @@ unsafe extern "C" {
     pub fn ts_node_eq(self_: TSNode, other: TSNode) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Edit a point to keep it in-sync with source code that has been edited.\n\n This function updates a single point's byte offset and row/column position\n based on an edit operation. This is useful for editing points without\n requiring a tree or node instance."]
+    #[doc = " Edit a point to keep it in-sync with source code that has been edited.\n\n This function updates a single point's byte offset and row/column position\n based on an edit operation. This is useful for editing points without\n requiring a tree or node instance.\n\n The edit's `start_byte` must be less than or equal to its `old_end_byte`,\n and its `start_point` must be less than or equal to its `old_end_point`."]
     pub fn ts_point_edit(point: *mut TSPoint, point_byte: *mut u32, edit: *const TSInputEdit);
 }
 unsafe extern "C" {
-    #[doc = " Edit a range to keep it in-sync with source code that has been edited.\n\n This function updates a range's start and end positions based on an edit\n operation. This is useful for editing ranges without requiring a tree\n or node instance."]
+    #[doc = " Edit a range to keep it in-sync with source code that has been edited.\n\n This function updates a range's start and end positions based on an edit\n operation. This is useful for editing ranges without requiring a tree\n or node instance.\n\n The edit's `start_byte` must be less than or equal to its `old_end_byte`,\n and its `start_point` must be less than or equal to its `old_end_point`."]
     pub fn ts_range_edit(range: *mut TSRange, edit: *const TSInputEdit);
 }
 unsafe extern "C" {
@@ -639,7 +640,7 @@ unsafe extern "C" {
     ) -> *const ::core::ffi::c_char;
 }
 unsafe extern "C" {
-    #[doc = " Get the quantifier of the query's captures. Each capture is * associated\n with a numeric id based on the order that it appeared in the query's source."]
+    #[doc = " Get the quantifier of the query's captures. Each capture is associated\n with a numeric id based on the order that it appeared in the query's source."]
     pub fn ts_query_capture_quantifier_for_id(
         self_: *const TSQuery,
         pattern_index: u32,
@@ -666,7 +667,7 @@ unsafe extern "C" {
     pub fn ts_query_disable_pattern(self_: *mut TSQuery, pattern_index: u32);
 }
 unsafe extern "C" {
-    #[doc = " Create a new cursor for executing a given query.\n\n The cursor stores the state that is needed to iteratively search\n for matches. To use the query cursor, first call [`ts_query_cursor_exec`]\n to start running a given query on a given syntax node. Then, there are\n two options for consuming the results of the query:\n 1. Repeatedly call [`ts_query_cursor_next_match`] to iterate over all of the\n    *matches* in the order that they were found. Each match contains the\n    index of the pattern that matched, and an array of captures. Because\n    multiple patterns can match the same set of nodes, one match may contain\n    captures that appear *before* some of the captures from a previous match.\n 2. Repeatedly call [`ts_query_cursor_next_capture`] to iterate over all of the\n    individual *captures* in the order that they appear. This is useful if\n    don't care about which pattern matched, and just want a single ordered\n    sequence of captures.\n\n If you don't care about consuming all of the results, you can stop calling\n [`ts_query_cursor_next_match`] or [`ts_query_cursor_next_capture`] at any point.\n  You can then start executing another query on another node by calling\n  [`ts_query_cursor_exec`] again."]
+    #[doc = " Create a new cursor for executing a given query.\n\n The cursor stores the state that is needed to iteratively search\n for matches. To use the query cursor, first call [`ts_query_cursor_exec`]\n to start running a given query on a given syntax node. Then, there are\n two options for consuming the results of the query:\n 1. Repeatedly call [`ts_query_cursor_next_match`] to iterate over all of the\n    *matches* in the order that they were found. Each match contains the\n    index of the pattern that matched, and an array of captures. Because\n    multiple patterns can match the same set of nodes, one match may contain\n    captures that appear *before* some of the captures from a previous match.\n 2. Repeatedly call [`ts_query_cursor_next_capture`] to iterate over all of the\n    individual *captures* in the order that they appear. This is useful if\n    you don't care about which pattern matched, and just want a single ordered\n    sequence of captures.\n\n If you don't care about consuming all of the results, you can stop calling\n [`ts_query_cursor_next_match`] or [`ts_query_cursor_next_capture`] at any point.\n  You can then start executing another query on another node by calling\n  [`ts_query_cursor_exec`] again."]
     pub fn ts_query_cursor_new() -> *mut TSQueryCursor;
 }
 unsafe extern "C" {
@@ -697,7 +698,7 @@ unsafe extern "C" {
     pub fn ts_query_cursor_set_match_limit(self_: *mut TSQueryCursor, limit: u32);
 }
 unsafe extern "C" {
-    #[doc = " Set the range of bytes in which the query will be executed.\n\n The query cursor will return matches that intersect with the given point range.\n This means that a match may be returned even if some of its captures fall\n outside the specified range, as long as at least part of the match\n overlaps with the range.\n\n For example, if a query pattern matches a node that spans a larger area\n than the specified range, but part of that node intersects with the range,\n the entire match will be returned.\n\n This will return `false` if the start byte is greater than the end byte, otherwise\n it will return `true`."]
+    #[doc = " Set the range of bytes in which the query will be executed.\n\n The query cursor will return matches that intersect with the given byte range.\n This means that a match may be returned even if some of its captures fall\n outside the specified range, as long as at least part of the match\n overlaps with the range.\n\n For example, if a query pattern matches a node that spans a larger area\n than the specified range, but part of that node intersects with the range,\n the entire match will be returned.\n\n NOTE: An `end_byte` of zero is interpreted as `UINT32_MAX`, making the range\n unbounded.\n\n This will return `false` if the start byte is greater than the end byte, otherwise\n it will return `true`."]
     pub fn ts_query_cursor_set_byte_range(
         self_: *mut TSQueryCursor,
         start_byte: u32,
@@ -705,7 +706,7 @@ unsafe extern "C" {
     ) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Set the range of (row, column) positions in which the query will be executed.\n\n The query cursor will return matches that intersect with the given point range.\n This means that a match may be returned even if some of its captures fall\n outside the specified range, as long as at least part of the match\n overlaps with the range.\n\n For example, if a query pattern matches a node that spans a larger area\n than the specified range, but part of that node intersects with the range,\n the entire match will be returned.\n\n This will return `false` if the start point is greater than the end point, otherwise\n it will return `true`."]
+    #[doc = " Set the range of (row, column) positions in which the query will be executed.\n\n The query cursor will return matches that intersect with the given point range.\n This means that a match may be returned even if some of its captures fall\n outside the specified range, as long as at least part of the match\n overlaps with the range.\n\n For example, if a query pattern matches a node that spans a larger area\n than the specified range, but part of that node intersects with the range,\n the entire match will be returned.\n\n NOTE: An `end_point` of `(0, 0)` is interpreted as `POINT_MAX`, making the\n range unbounded.\n\n This will return `false` if the start point is greater than the end point, otherwise\n it will return `true`."]
     pub fn ts_query_cursor_set_point_range(
         self_: *mut TSQueryCursor,
         start_point: TSPoint,
@@ -713,7 +714,7 @@ unsafe extern "C" {
     ) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Set the byte range within which all matches must be fully contained.\n\n Set the range of bytes in which matches will be searched for. In contrast to\n `ts_query_cursor_set_byte_range`, this will restrict the query cursor to only return\n matches where _all_ nodes are _fully_ contained within the given range. Both functions\n can be used together, e.g. to search for any matches that intersect line 5000, as\n long as they are fully contained within lines 4500-5500"]
+    #[doc = " Set the byte range within which all matches must be fully contained.\n\n Set the range of bytes in which matches will be searched for. In contrast to\n `ts_query_cursor_set_byte_range`, this will restrict the query cursor to only return\n matches where _all_ nodes are _fully_ contained within the given range. Both functions\n can be used together, e.g. to search for any matches that intersect line 5000, as\n long as they are fully contained within lines 4500-5500\n\n NOTE: An `end_byte` of zero is interpreted as `UINT32_MAX`, making the range\n unbounded."]
     pub fn ts_query_cursor_set_containing_byte_range(
         self_: *mut TSQueryCursor,
         start_byte: u32,
@@ -721,7 +722,7 @@ unsafe extern "C" {
     ) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Set the point range within which all matches must be fully contained.\n\n Set the range of bytes in which matches will be searched for. In contrast to\n `ts_query_cursor_set_point_range`, this will restrict the query cursor to only return\n matches where _all_ nodes are _fully_ contained within the given range. Both functions\n can be used together, e.g. to search for any matches that intersect line 5000, as\n long as they are fully contained within lines 4500-5500"]
+    #[doc = " Set the point range within which all matches must be fully contained.\n\n Set the range of bytes in which matches will be searched for. In contrast to\n `ts_query_cursor_set_point_range`, this will restrict the query cursor to only return\n matches where _all_ nodes are _fully_ contained within the given range. Both functions\n can be used together, e.g. to search for any matches that intersect line 5000, as\n long as they are fully contained within lines 4500-5500\n\n NOTE: An `end_point` of `(0, 0)` is interpreted as `POINT_MAX`, making the\n range unbounded."]
     pub fn ts_query_cursor_set_containing_point_range(
         self_: *mut TSQueryCursor,
         start_point: TSPoint,
@@ -745,7 +746,7 @@ unsafe extern "C" {
     ) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Set the maximum start depth for a query cursor.\n\n This prevents cursors from exploring children nodes at a certain depth.\n Note if a pattern includes many children, then they will still be checked.\n\n The zero max start depth value can be used as a special behavior and\n it helps to destructure a subtree by staying on a node and using captures\n for interested parts. Note that the zero max start depth only limit a search\n depth for a pattern's root node but other nodes that are parts of the pattern\n may be searched at any depth what defined by the pattern structure.\n\n Set to `UINT32_MAX` to remove the maximum start depth."]
+    #[doc = " Set the maximum start depth for a query cursor.\n\n This prevents cursors from exploring children nodes at a certain depth.\n Note if a pattern includes many children, then they will still be checked.\n\n The zero max start depth value can be used as a special behavior and\n it helps to destructure a subtree by staying on a node and using captures\n for interested parts. Note that the zero max start depth only limits a search\n depth for a pattern's root node but other nodes that are parts of the pattern\n may be searched at any depth as defined by the pattern structure.\n\n Set to `UINT32_MAX` to remove the maximum start depth."]
     pub fn ts_query_cursor_set_max_start_depth(self_: *mut TSQueryCursor, max_start_depth: u32);
 }
 unsafe extern "C" {
@@ -812,7 +813,7 @@ unsafe extern "C" {
     ) -> *const ::core::ffi::c_char;
 }
 unsafe extern "C" {
-    #[doc = " Check whether the given node type id belongs to named nodes, anonymous nodes,\n or a hidden nodes.\n\n See also [`ts_node_is_named`]. Hidden nodes are never returned from the API."]
+    #[doc = " Check whether the given node type id belongs to named nodes, anonymous nodes,\n or hidden nodes.\n\n See also [`ts_node_is_named`]. Hidden nodes are never returned from the API."]
     pub fn ts_language_symbol_type(self_: *const TSLanguage, symbol: TSSymbol) -> TSSymbolType;
 }
 unsafe extern "C" {

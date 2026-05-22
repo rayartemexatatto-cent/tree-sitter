@@ -114,6 +114,13 @@ typedef struct TSLogger {
   void (*log)(void *payload, TSLogType log_type, const char *buffer);
 } TSLogger;
 
+/**
+ * A summary of a change to a text document.
+ *
+ * The `start_byte` and `start_point` values must be less than or equal to the
+ * `old_end_byte` and `old_end_point` values, respectively. Passing an edit
+ * that violates these invariants may produce nonsensical results.
+ */
 typedef struct TSInputEdit {
   uint32_t start_byte;
   uint32_t old_end_byte;
@@ -437,6 +444,9 @@ TSRange *ts_tree_included_ranges(const TSTree *self, uint32_t *length);
  *
  * You must describe the edit both in terms of byte offsets and in terms of
  * (row, column) coordinates.
+ *
+ * The edit's `start_byte` must be less than or equal to its `old_end_byte`,
+ * and its `start_point` must be less than or equal to its `old_end_point`.
  */
 void ts_tree_edit(TSTree *self, const TSInputEdit *edit);
 
@@ -554,7 +564,7 @@ bool ts_node_is_missing(TSNode self);
 
 /**
  * Check if the node is *extra*. Extra nodes represent things like comments,
- * which are not required the grammar, but can appear anywhere.
+ * which are not required by the grammar, but can appear anywhere.
  */
 bool ts_node_is_extra(TSNode self);
 
@@ -700,6 +710,9 @@ TSNode ts_node_named_descendant_for_point_range(TSNode self, TSPoint start, TSPo
  * afterward will already reflect the edit. You only need to use [`ts_node_edit`]
  * when you have a [`TSNode`] instance that you want to keep and continue to use
  * after an edit.
+ *
+ * The edit's `start_byte` must be less than or equal to its `old_end_byte`,
+ * and its `start_point` must be less than or equal to its `old_end_point`.
  */
 void ts_node_edit(TSNode *self, const TSInputEdit *edit);
 
@@ -714,6 +727,9 @@ bool ts_node_eq(TSNode self, TSNode other);
  * This function updates a single point's byte offset and row/column position
  * based on an edit operation. This is useful for editing points without
  * requiring a tree or node instance.
+ *
+ * The edit's `start_byte` must be less than or equal to its `old_end_byte`,
+ * and its `start_point` must be less than or equal to its `old_end_point`.
  */
 void ts_point_edit(TSPoint *point, uint32_t *point_byte, const TSInputEdit *edit);
 
@@ -723,6 +739,9 @@ void ts_point_edit(TSPoint *point, uint32_t *point_byte, const TSInputEdit *edit
  * This function updates a range's start and end positions based on an edit
  * operation. This is useful for editing ranges without requiring a tree
  * or node instance.
+ *
+ * The edit's `start_byte` must be less than or equal to its `old_end_byte`,
+ * and its `start_point` must be less than or equal to its `old_end_point`.
  */
 void ts_range_edit(TSRange *range, const TSInputEdit *edit);
 
@@ -976,7 +995,7 @@ const char *ts_query_capture_name_for_id(
 );
 
 /**
- * Get the quantifier of the query's captures. Each capture is * associated
+ * Get the quantifier of the query's captures. Each capture is associated
  * with a numeric id based on the order that it appeared in the query's source.
  */
 TSQuantifier ts_query_capture_quantifier_for_id(
@@ -1022,7 +1041,7 @@ void ts_query_disable_pattern(TSQuery *self, uint32_t pattern_index);
  *    captures that appear *before* some of the captures from a previous match.
  * 2. Repeatedly call [`ts_query_cursor_next_capture`] to iterate over all of the
  *    individual *captures* in the order that they appear. This is useful if
- *    don't care about which pattern matched, and just want a single ordered
+ *    you don't care about which pattern matched, and just want a single ordered
  *    sequence of captures.
  *
  * If you don't care about consuming all of the results, you can stop calling
@@ -1070,7 +1089,7 @@ void ts_query_cursor_set_match_limit(TSQueryCursor *self, uint32_t limit);
 /**
  * Set the range of bytes in which the query will be executed.
  *
- * The query cursor will return matches that intersect with the given point range.
+ * The query cursor will return matches that intersect with the given byte range.
  * This means that a match may be returned even if some of its captures fall
  * outside the specified range, as long as at least part of the match
  * overlaps with the range.
@@ -1078,6 +1097,9 @@ void ts_query_cursor_set_match_limit(TSQueryCursor *self, uint32_t limit);
  * For example, if a query pattern matches a node that spans a larger area
  * than the specified range, but part of that node intersects with the range,
  * the entire match will be returned.
+ *
+ * NOTE: An `end_byte` of zero is interpreted as `UINT32_MAX`, making the range
+ * unbounded.
  *
  * This will return `false` if the start byte is greater than the end byte, otherwise
  * it will return `true`.
@@ -1096,6 +1118,9 @@ bool ts_query_cursor_set_byte_range(TSQueryCursor *self, uint32_t start_byte, ui
  * than the specified range, but part of that node intersects with the range,
  * the entire match will be returned.
  *
+ * NOTE: An `end_point` of `(0, 0)` is interpreted as `POINT_MAX`, making the
+ * range unbounded.
+ *
  * This will return `false` if the start point is greater than the end point, otherwise
  * it will return `true`.
  */
@@ -1109,6 +1134,9 @@ bool ts_query_cursor_set_point_range(TSQueryCursor *self, TSPoint start_point, T
  * matches where _all_ nodes are _fully_ contained within the given range. Both functions
  * can be used together, e.g. to search for any matches that intersect line 5000, as
  * long as they are fully contained within lines 4500-5500
+ *
+ * NOTE: An `end_byte` of zero is interpreted as `UINT32_MAX`, making the range
+ * unbounded.
  */
 bool ts_query_cursor_set_containing_byte_range(TSQueryCursor *self, uint32_t start_byte, uint32_t end_byte);
 
@@ -1120,6 +1148,9 @@ bool ts_query_cursor_set_containing_byte_range(TSQueryCursor *self, uint32_t sta
  * matches where _all_ nodes are _fully_ contained within the given range. Both functions
  * can be used together, e.g. to search for any matches that intersect line 5000, as
  * long as they are fully contained within lines 4500-5500
+ *
+ * NOTE: An `end_point` of `(0, 0)` is interpreted as `POINT_MAX`, making the
+ * range unbounded.
  */
 bool ts_query_cursor_set_containing_point_range(TSQueryCursor *self, TSPoint start_point, TSPoint end_point);
 
@@ -1152,9 +1183,9 @@ bool ts_query_cursor_next_capture(
  *
  * The zero max start depth value can be used as a special behavior and
  * it helps to destructure a subtree by staying on a node and using captures
- * for interested parts. Note that the zero max start depth only limit a search
+ * for interested parts. Note that the zero max start depth only limits a search
  * depth for a pattern's root node but other nodes that are parts of the pattern
- * may be searched at any depth what defined by the pattern structure.
+ * may be searched at any depth as defined by the pattern structure.
  *
  * Set to `UINT32_MAX` to remove the maximum start depth.
  */
@@ -1233,7 +1264,7 @@ const char *ts_language_symbol_name(const TSLanguage *self, TSSymbol symbol);
 
 /**
  * Check whether the given node type id belongs to named nodes, anonymous nodes,
- * or a hidden nodes.
+ * or hidden nodes.
  *
  * See also [`ts_node_is_named`]. Hidden nodes are never returned from the API.
  */

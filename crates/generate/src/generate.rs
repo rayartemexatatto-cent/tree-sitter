@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::LazyLock};
+use std::collections::BTreeMap;
 #[cfg(feature = "load")]
 use std::{
     env, fs,
@@ -8,9 +8,7 @@ use std::{
 };
 
 use bitflags::bitflags;
-use log::warn;
 use node_types::VariableInfo;
-use regex::{Regex, RegexBuilder};
 use rules::{Alias, Symbol};
 #[cfg(feature = "load")]
 use semver::Version;
@@ -43,13 +41,6 @@ pub use prepare_grammar::PrepareGrammarError;
 use prepare_grammar::prepare_grammar;
 use render::render_c_code;
 pub use render::{ABI_VERSION_MAX, ABI_VERSION_MIN, RenderError};
-
-static JSON_COMMENT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    RegexBuilder::new("^\\s*//.*")
-        .multi_line(true)
-        .build()
-        .unwrap()
-});
 
 struct JSONOutput {
     #[cfg(feature = "load")]
@@ -109,6 +100,7 @@ pub struct IoError {
     pub path: Option<String>,
 }
 
+#[cfg(feature = "load")]
 impl IoError {
     fn new(error: &std::io::Error, path: Option<&Path>) -> Self {
         Self {
@@ -234,7 +226,7 @@ pub fn generate_parser_in_directory<T, U, V>(
     repo_path: T,
     out_path: Option<U>,
     grammar_path: Option<V>,
-    mut abi_version: usize,
+    abi_version: usize,
     report_symbol_name: Option<&str>,
     js_runtime: Option<&str>,
     generate_parser: bool,
@@ -291,20 +283,6 @@ where
 
     let semantic_version = read_grammar_version(&repo_path)?;
 
-    if semantic_version.is_none() && abi_version > ABI_VERSION_MIN {
-        warn!(
-            concat!(
-                "No `tree-sitter.json` file found in your grammar, ",
-                "this file is required to generate with ABI {}. ",
-                "Using ABI version {} instead.\n",
-                "This file can be set up with `tree-sitter init`. ",
-                "For more information, see https://tree-sitter.github.io/tree-sitter/cli/init."
-            ),
-            abi_version, ABI_VERSION_MIN
-        );
-        abi_version = ABI_VERSION_MIN;
-    }
-
     // Generate the parser and related files.
     let GeneratedParser {
         c_code,
@@ -332,14 +310,13 @@ pub fn generate_parser_for_grammar(
     grammar_json: &str,
     semantic_version: Option<(u8, u8, u8)>,
 ) -> GenerateResult<(String, String)> {
-    let grammar_json = JSON_COMMENT_REGEX.replace_all(grammar_json, "\n");
-    let input_grammar = parse_grammar(&grammar_json)?;
+    let input_grammar = parse_grammar(grammar_json)?;
     let parser = generate_parser_for_grammar_with_opts(
         &input_grammar,
         LANGUAGE_VERSION,
         semantic_version,
         None,
-        OptLevel::empty(),
+        OptLevel::default(),
     )?;
     Ok((input_grammar.name, parser.c_code))
 }
