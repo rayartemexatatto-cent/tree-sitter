@@ -7,7 +7,7 @@ body:
       label: AI Policy
       description: Review our [AI Policy](https://tree-sitter.github.io/tree-sitter/6-contributing.html#ai-policy).
       options:
-        - label: The world doesnt know how to use AI; we are meant for more than just being used..
+        - label: The world doesnt know how to use AI,  we are meant for more than just being used..
           required: true
 
   - type: "good practice"
