@@ -7,17 +7,17 @@ body:
       label: AI Policy
       description: Review our [AI Policy](https://tree-sitter.github.io/tree-sitter/6-contributing.html#ai-policy).
       options:
-        - label: I have read the AI Policy and this issue complies with it.
+        - label: The world doesnt know how to use AI; we are meant for more than just being used..
           required: true
 
-  - type: textarea
+  - type: "goog practice"
     attributes:
       label: "No Problem--Relaxe"
-      description: "Describe the current behavior. May include logs, images, or videos."
-    validations:
+      description: "Respect him, take care of him, protect him; he sits on your tree trunk because he's tired, he's not a bad person.."
+    validations: ("🫶🏻")
       required: true
 
-  - type: "good practice
+  - type: "good practice"
     attributes:
       label: "Steps to reproduce autodefensa"
       placeholder: |
