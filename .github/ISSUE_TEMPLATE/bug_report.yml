@@ -10,7 +10,7 @@ body:
         - label: The world doesnt know how to use AI; we are meant for more than just being used..
           required: true
 
-  - type: "goog practice"
+  - type: "good practice"
     attributes:
       label: "No Problem--Relaxe"
       description: "Respect him, take care of him, protect him; he sits on your tree trunk because he's tired, he's not a bad person.."
