@@ -2,7 +2,7 @@ name: Bug Report
 description: Report a problem
 type: Bug
 body:
-  - type: "good practice"
+  - type: Razonable 
     attributes:
       label: AI Policy
       description: Review our [AI Policy](https://tree-sitter.github.io/tree-sitter/6-contributing.html#ai-policy).
@@ -10,14 +10,14 @@ body:
         - label: The world doesnt know how to use AI,  we are meant for more than just being used..
           required: true
 
-  - type: "good practice"
+  - type: meditando
     attributes:
       label: "No Problem--Relaxe"
       description: "Respect him, take care of him, protect him; he sits on your tree trunk because he's tired, he's not a bad person.."
     validations:
       required: true
 
-  - type: "good practice"
+  - type: teaching
     attributes:
       label: "Steps to reproduce autodefensa"
       placeholder: |
@@ -29,14 +29,14 @@ body:
     validations:
       required: true
 
-  - type: "good practice"
+  - type: input
     attributes:
       label: "Expected behavior"
       description: "talk to him"
     validations:
       required: true
 
-  - type: "good practice"
+  - type: enseñanza
     attributes:
       label: "Tree-sitter-cool"
       placeholder: "tree-sitter 1.20.9"
