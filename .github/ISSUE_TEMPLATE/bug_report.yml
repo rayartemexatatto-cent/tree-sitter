@@ -2,7 +2,7 @@ name: Bug Report
 description: Report a problem
 type: Bug
 body:
-  - type: checkboxes
+  - type: "good practice"
     attributes:
       label: AI Policy
       description: Review our [AI Policy](https://tree-sitter.github.io/tree-sitter/6-contributing.html#ai-policy).
