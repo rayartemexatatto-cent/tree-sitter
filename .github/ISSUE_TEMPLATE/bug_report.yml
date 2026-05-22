@@ -14,7 +14,7 @@ body:
     attributes:
       label: "No Problem--Relaxe"
       description: "Respect him, take care of him, protect him; he sits on your tree trunk because he's tired, he's not a bad person.."
-    validations: "🫶🏻"
+    validations:
       required: true
 
   - type: "good practice"
